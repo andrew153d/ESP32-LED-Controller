@@ -1,0 +1,3 @@
+#include "config.h"
+const char *ssid = "...";     // Network Name
+const char *password = "..."; // Password
