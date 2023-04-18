@@ -5,38 +5,63 @@
 #include <ArduinoOTA.h>
 #include <Adafruit_NeoPixel.h>
 #include <config.h>
+#include <esp_wifi.h>
+#include <Arduino.h>
+#include <esp_now.h>
 
 #define PIN 4
-#define NUMPIXELS 4
+#define NUMPIXELS 88
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
-#define DELAYVAL 100 // Time (in milliseconds) to pause between pixels
+#define DELAYVAL 800 // Time (in milliseconds) to pause between pixels
+int pixelIndex = 0;
+int timeOfMessage = 0;
+// uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x47, 0x42, 0x00};
+
+typedef struct light_message
+{
+  uint8_t Red;
+  uint8_t Green;
+  uint8_t Blue;
+} light_message;
+
+light_message myData;
+
+// callback function that will be executed when data is received
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
+{
+  memcpy(&myData, incomingData, sizeof(myData));
+  digitalWrite(32, HIGH);
+  for (int i = 0; i < NUMPIXELS; i++)
+  {
+    pixels.setPixelColor(i, pixels.Color(myData.Red, myData.Green, myData.Blue));
+  }
+  pixels.show();
+  timeOfMessage = millis();
+}
 
 void setup()
 {
+  pinMode(32, OUTPUT);
   Serial.begin(115200);
   Serial.println("Booting");
-  WiFi.mode(WIFI_STA);
+
+  WiFi.mode(WIFI_AP_STA);
   WiFi.begin(ssid, password);
+  uint8_t newMACAddress[] = {0x32, 0xAE, 0xA4, 0x07, 0x0D, 0x66};
+
   pixels.begin();
   while (WiFi.waitForConnectResult() != WL_CONNECTED)
   {
     Serial.println("Connection Failed! Rebooting...");
+    pixels.setPixelColor(2, pixels.Color(255, 50, 0));
+    pixels.setPixelColor(1, pixels.Color(255, 50, 0));
+    pixels.setPixelColor(0, pixels.Color(255, 50, 0));
+    pixels.show();
     delay(5000);
     ESP.restart();
   }
 
-  // Port defaults to 3232
-  // ArduinoOTA.setPort(3232);
-
-  // Hostname defaults to esp3232-[MAC]
   ArduinoOTA.setHostname("SPLight");
-
-  // No authentication by default
-  // ArduinoOTA.setPassword("admin");
-
-  // Password can be set with it's md5 value as well
-  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
-  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
 
   ArduinoOTA
       .onStart([]()
@@ -64,28 +89,64 @@ void setup()
 
   ArduinoOTA.begin();
 
+  // uint8_t newMACAddress[] = {0x32, 0xAE, 0xA4, 0x07, 0x0D, 0x66};
+  // esp_wifi_set_mac(WIFI_IF_STA, &newMACAddress[0]);
+
   Serial.println("Ready");
   Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  pinMode(35, INPUT);
+  if (digitalRead(35))
+  {
+    Serial.println(esp_wifi_set_mac(WIFI_IF_STA, &newMACAddress[0]), HEX);
+    Serial.println(WiFi.macAddress());
+  }
+
+  if (esp_now_init() != ESP_OK)
+  {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // Once ESPNow is successfully Init, we will register for recv CB to
+  // get recv packer info
+  esp_now_register_recv_cb(OnDataRecv);
+
+  pixels.clear();
+  for (int i = 2; i < NUMPIXELS - 2; i++)
+  {
+    pixels.clear();
+    pixels.setPixelColor(i - 2, pixels.Color(10, 10, 10));
+    pixels.setPixelColor(i - 1, pixels.Color(50, 50, 50));
+    pixels.setPixelColor(i, pixels.Color(100, 100, 100));
+    pixels.setPixelColor(i - 1, pixels.Color(50, 50, 50));
+    pixels.setPixelColor(i + 2, pixels.Color(10, 10, 10));
+    pixels.show();
+    delay(50);
+  }
+  for (int i = 0; i < NUMPIXELS; i++)
+  {
+    pixels.setPixelColor(i, pixels.Color(100, 100, 100));
+    pixels.show();
+    delay(10);
+  }
 }
 
 void loop()
 {
-   // Set all pixel colors to 'off'
+  // Set all pixel colors to 'off'
 
   // The first NeoPixel in a strand is #0, second is 1, all the way up
   // to the count of pixels minus one.
-  for (int i = 0; i < NUMPIXELS; i++)
-  { // For each pixel...
+  // For each pixel...
 
-    // pixels.Color() takes RGB values, from 0,0,0 up to 255,255,255
-    // Here we're using a moderately bright green color:
-    pixels.clear();
-    pixels.setPixelColor(i, pixels.Color(0, 50, 0));
+  // pixels.Color() takes RGB values, from 0,0,0 up to 255,255,255
+  // Here we're using a moderately bright green color:
 
-    pixels.show(); // Send the updated pixel colors to the hardware.
+  // pixels.clear();
 
-    delay(DELAYVAL); // Pause before next pass through loop
+  if (millis() - timeOfMessage > 500)
+  {
+    digitalWrite(32, LOW);
   }
   ArduinoOTA.handle();
 }
